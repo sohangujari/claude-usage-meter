@@ -34,7 +34,7 @@
     try { window.removeEventListener('popstate', onRoute); } catch (e) {}
     try { window.removeEventListener('message', onMessage); } catch (e) {}
     try { document.removeEventListener('visibilitychange', onVisibility); } catch (e) {}
-    console.info('[Claude Usage Meter] Context ended (page unload or extension reload) - cleaning up.');
+    console.info('[Claude Usage Meter] Context ended (page unload or extension reload) — cleaning up.');
   }
 
   window.addEventListener('pagehide', teardown, { once: true });
@@ -136,7 +136,7 @@
         cb(m[1]);
         return;
       }
-      console.warn('[CUM] orgId not found yet (attempt', orgResolveAttempts + 1, ') - waiting for network sniff / retry');
+      console.warn('[CUM] orgId not found yet (attempt', orgResolveAttempts + 1, ') — waiting for network sniff / retry');
       cb(null);
 
       orgResolveAttempts++;
@@ -158,7 +158,7 @@
   async function pollUsage(force) {
     if (!isContextValid()) return;
     if (!STATE.orgId) {
-      console.warn('[CUM] pollUsage skipped - no orgId yet');
+      console.warn('[CUM] pollUsage skipped — no orgId yet');
       return;
     }
     const now = Date.now();
@@ -260,7 +260,16 @@
     if (!resetsAt && previous && previous.resetsAt) resetsAt = previous.resetsAt;
 
     if (used == null && limit == null && typeof node.utilization === 'number') {
-      const pct = node.utilization <= 1 ? node.utilization * 100 : node.utilization;
+      const raw = node.utilization;
+      // Anthropic sends `utilization` as a whole-number percentage already
+      // (e.g. 1 means 1%, not a 0–1 fraction). We only treat it as a
+      // fraction when it has a decimal component below 1 (e.g. 0.15),
+      // since that's the only signal that reliably disambiguates it from
+      // a real low percentage. A fraction of exactly 1.0 (100%) is
+      // inherently indistinguishable from "already-percentage 1" (1%)
+      // by magnitude alone — this has not been observed in practice,
+      // so it's accepted as a known, documented edge case.
+      const pct = (!Number.isInteger(raw) && raw > 0 && raw < 1) ? raw * 100 : raw;
       return { used: null, limit: null, remaining: null, pct: clamp(pct, 0, 100), resetsAt };
     }
     if (used == null || limit == null) return null;
@@ -301,7 +310,7 @@
     console.log('[CUM] normalized weekly bucket:', weekly);
 
     if (!current && !weekly) {
-      console.warn('[CUM] Neither bucket normalized - payload shape mismatch. Inspect window.__cumLastPayload');
+      console.warn('[CUM] Neither bucket normalized — payload shape mismatch. Inspect window.__cumLastPayload');
       return;
     }
 
@@ -335,7 +344,7 @@
   safeInterval(() => { if (barEl) refreshBarUI(); }, 30000);
 
   // ==================================================================
-  // UI - embedded inline inside Claude's own composer card
+  // UI — embedded inline inside Claude's own composer card
   // ==================================================================
   let barEl = null;
 
@@ -359,13 +368,13 @@
     barEl.id = 'cum-inline-bar';
     barEl.innerHTML = `
       <div class="cum-meter" data-bucket="current">
-        <div class="cum-meter-head"><span class="cum-meter-label">Session</span><span class="cum-meter-value">-</span></div>
+        <div class="cum-meter-head"><span class="cum-meter-label">Session</span><span class="cum-meter-value">—</span></div>
         <div class="cum-track"><div class="cum-fill"></div></div>
         <div class="cum-reset"></div>
       </div>
       <div class="cum-divider"></div>
       <div class="cum-meter" data-bucket="weekly">
-        <div class="cum-meter-head"><span class="cum-meter-label">Weekly</span><span class="cum-meter-value">-</span></div>
+        <div class="cum-meter-head"><span class="cum-meter-label">Weekly</span><span class="cum-meter-value">—</span></div>
         <div class="cum-track"><div class="cum-fill"></div></div>
         <div class="cum-reset"></div>
       </div>`;
@@ -404,7 +413,7 @@
     const resetEl = wrap.querySelector('.cum-reset');
 
     if (!data) {
-      valueEl.textContent = '-';
+      valueEl.textContent = '—';
       fillEl.style.width = '0%';
       fillEl.classList.remove('cum-fill--warn', 'cum-fill--danger');
       resetEl.textContent = '';
@@ -432,7 +441,6 @@
   function render() {
     attachBar();
     refreshBarUI();
-    safeSendMessage({ type: 'SET_BADGE', pct: STATE.usage?.current?.pct ?? null });
   }
 
   // SPA route change handling
