@@ -20,7 +20,7 @@ A Chrome extension that shows your **Claude.ai session (5h)** and **weekly (7d)*
 
 ## Installation
 
-1. Download `claude-usage-meter-0.1.0.zip` from the [Releases](../../releases) page
+1. Download [`claude-usage-meter-0.1.0.zip`](../../releases/download/v0.1.0/claude-usage-meter-0.1.0.zip) from the [Releases](../../releases) page
 2. Go to `chrome://extensions` in Chrome
 3. Enable **Developer mode** (toggle in the top-right corner)
 4. Drag and drop the zip onto the page
