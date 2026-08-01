@@ -1,0 +1,59 @@
+#cum-inline-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding-top: 10px;
+  margin-top: 2px;
+  border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  color: inherit;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.cum-meter { flex: 1; min-width: 0; }
+
+.cum-meter-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 5px;
+}
+
+.cum-meter-label {
+  opacity: 0.55;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.cum-meter-value {
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0.9;
+}
+
+.cum-track {
+  height: 3px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.cum-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: #C96442;
+  transition: width 0.4s ease;
+}
+
+.cum-fill--warn { background: #E0A03D; }
+.cum-fill--danger { background: #E05D4B; }
+
+.cum-reset { margin-top: 4px; font-size: 10px; opacity: 0.5; min-height: 12px; }
+
+.cum-divider { width: 1px; align-self: stretch; background: currentColor; opacity: 0.08; }

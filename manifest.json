@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "Claude Usage Meter",
+  "version": "0.1.0",
+  "description": "Shows live session & weekly usage limits right inside the message composer on claude.ai.",
+  "permissions": ["storage", "cookies"],
+  "host_permissions": ["https://claude.ai/*"],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": ["src/content.js"],
+      "css": ["src/styles.css"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/injected.js"],
+      "matches": ["https://claude.ai/*"]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "96": "icons/icon96.png",
+    "128": "icons/icon128.png",
+    "256": "icons/icon256.png",
+    "512": "icons/icon512.png"
+  },
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png",
+      "256": "icons/icon256.png",
+      "512": "icons/icon512.png"
+    }
+  }
+}
