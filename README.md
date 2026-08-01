@@ -1,3 +1,5 @@
+<img src="./icons/icon.png" alt="Claude Usage Meter Logo" width="96">
+
 # Claude Usage Meter
 
 A Chrome extension that shows your **Claude.ai session (5h)** and **weekly (7d)** usage limits directly inside the message composer - no need to guess how close you are to hitting a rate limit.
