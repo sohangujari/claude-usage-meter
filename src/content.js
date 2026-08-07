@@ -1,465 +1,355 @@
 (function () {
   'use strict';
 
-  const STORAGE_KEY = 'cum_snapshot';
+  const { clamp, countdown, level, value: formatValue } = UsageFormat;
 
-  const STATE = {
-    orgId: null,
-    usage: null,
-    lastPollAt: 0,
+  const LOG_PREFIX = '[Claude Usage Meter]';
+  const STORAGE_KEY = 'usageSnapshot';
+  const SNIFFER_EVENT = '__claude_usage_meter__';
+  const BAR_ID = 'cu-usage-bar';
+
+  const POLL_INTERVAL_MS = 20000;
+  const MIN_POLL_GAP_MS = 5000;
+  const RENDER_INTERVAL_MS = 1000;
+  const ORG_ID_RETRY_MS = 2000;
+  const ORG_ID_ATTEMPTS = 8;
+  const POST_TURN_POLL_DELAY_MS = 1500;
+
+  const BUCKET_KEYS = {
+    current: ['five_hour', 'fiveHour', 'session'],
+    weekly: ['seven_day', 'sevenDay', 'weekly'],
   };
+  const RESET_KEYS = ['resets_at', 'resetsAt', 'resets_in_seconds', 'resetsInSeconds'];
 
-  let CONTEXT_ALIVE = true;
-  const activeIntervals = [];
+  const state = { orgId: null, usage: null, lastPollAt: 0 };
+  const timers = [];
+  const unload = new AbortController();
+  let alive = true;
 
-  const unloadController = new AbortController();
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  function isContextValid() {
-    if (!CONTEXT_ALIVE) return false;
+  // ---------------------------------------------------------------- lifecycle
+
+  function isAlive() {
+    if (!alive) return false;
     try {
-      return !!(chrome.runtime && chrome.runtime.id);
-    } catch (e) {
+      return Boolean(chrome.runtime?.id);
+    } catch {
       return false;
     }
   }
 
   function teardown() {
-    if (!CONTEXT_ALIVE) return;
-    CONTEXT_ALIVE = false;
-    activeIntervals.forEach((id) => clearInterval(id));
-    if (typeof mo !== 'undefined' && mo) mo.disconnect();
-    try { unloadController.abort(); } catch (e) {}
-    try { history.pushState = origPush; } catch (e) {}
-    try { history.replaceState = origReplace; } catch (e) {}
-    try { window.removeEventListener('popstate', onRoute); } catch (e) {}
-    try { window.removeEventListener('message', onMessage); } catch (e) {}
-    try { document.removeEventListener('visibilitychange', onVisibility); } catch (e) {}
-    console.info('[Claude Usage Meter] Context ended (page unload or extension reload) — cleaning up.');
+    if (!alive) return;
+    alive = false;
+    timers.forEach(clearInterval);
+    unload.abort();
+    window.removeEventListener('message', onSnifferMessage);
+    document.removeEventListener('visibilitychange', pollIfVisible);
   }
 
-  window.addEventListener('pagehide', teardown, { once: true });
-  window.addEventListener('beforeunload', teardown, { once: true });
-
-  function safeInterval(fn, ms) {
-    const id = setInterval(() => {
-      if (!isContextValid()) { clearInterval(id); teardown(); return; }
-      fn();
-    }, ms);
-    activeIntervals.push(id);
-    return id;
+  function interval(fn, ms) {
+    const id = setInterval(() => (isAlive() ? fn() : teardown()), ms);
+    timers.push(id);
   }
 
-  function safeSendMessage(msg, cb) {
-    if (!isContextValid()) return;
+  // ------------------------------------------------------------ chrome access
+
+  function sendMessage(message) {
+    if (!isAlive()) return Promise.resolve(null);
     try {
-      chrome.runtime.sendMessage(msg, (res) => {
-        if (chrome.runtime.lastError) return;
-        cb && cb(res);
-      });
-    } catch (e) {
+      return chrome.runtime.sendMessage(message).catch(() => null);
+    } catch {
+      teardown();
+      return Promise.resolve(null);
+    }
+  }
+
+  function readSnapshot() {
+    if (!isAlive()) return Promise.resolve(null);
+    try {
+      return chrome.storage.local
+        .get(STORAGE_KEY)
+        .then((stored) => stored[STORAGE_KEY] ?? null)
+        .catch(() => null);
+    } catch {
+      teardown();
+      return Promise.resolve(null);
+    }
+  }
+
+  function writeSnapshot(snapshot) {
+    if (!isAlive()) return;
+    try {
+      chrome.storage.local.set({ [STORAGE_KEY]: snapshot }).catch(() => {});
+    } catch {
       teardown();
     }
   }
 
-  function safeStorageGet(keys, cb) {
-    if (!isContextValid()) return;
-    try {
-      chrome.storage.local.get(keys, (res) => {
-        if (chrome.runtime.lastError) return;
-        cb(res);
-      });
-    } catch (e) {
-      teardown();
+  // -------------------------------------------------------------- usage feeds
+
+  function injectSniffer() {
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL('src/injected.js');
+    script.onload = () => script.remove();
+    (document.head ?? document.documentElement).appendChild(script);
+  }
+
+  async function resolveOrgId() {
+    for (let attempt = 0; attempt < ORG_ID_ATTEMPTS; attempt++) {
+      const response = await sendMessage({ type: 'GET_ORG_ID' });
+      if (response?.orgId) return response.orgId;
+
+      const cookie = document.cookie.match(/lastActiveOrg=([a-f0-9-]{36})/i);
+      if (cookie) return cookie[1];
+
+      await delay(ORG_ID_RETRY_MS);
+      if (!isAlive()) break;
     }
+    return null;
   }
 
-  function safeStorageSet(obj) {
-    if (!isContextValid()) return;
-    try {
-      chrome.storage.local.set(obj, () => { void chrome.runtime.lastError; });
-    } catch (e) {
-      teardown();
-    }
+  function setOrgId(orgId) {
+    if (!orgId || orgId === state.orgId) return;
+    state.orgId = orgId;
+    pollUsage({ force: true });
   }
 
-  // ---------------- inject page-context sniffer ----------------
-  function injectScript() {
-    if (!isContextValid()) return;
-    try {
-      const s = document.createElement('script');
-      s.src = chrome.runtime.getURL('injected.js');
-      s.onload = function () { this.remove(); };
-      (document.head || document.documentElement).appendChild(s);
-      console.log('[CUM] injected.js injected into page context');
-    } catch (e) {
-      console.warn('[CUM] failed to inject injected.js', e);
-      teardown();
-    }
-  }
-  injectScript();
+  async function pollUsage({ force = false } = {}) {
+    if (!isAlive() || !state.orgId) return;
 
-  // ---------------- load cached snapshot immediately ----------------
-  safeStorageGet([STORAGE_KEY], (res) => {
-    const snap = res[STORAGE_KEY];
-    if (snap && snap.usage) {
-      console.log('[CUM] loaded cached snapshot from storage:', snap);
-      STATE.usage = reviveDates(snap.usage);
-      render();
-    } else {
-      console.log('[CUM] no cached snapshot found in storage yet');
-    }
-  });
-
-  function reviveDates(usage) {
-    ['current', 'weekly'].forEach((k) => {
-      if (usage[k] && usage[k].resetsAt) {
-        const d = new Date(usage[k].resetsAt);
-        usage[k].resetsAt = isNaN(d.getTime()) ? null : d;
-      }
-    });
-    return usage;
-  }
-
-  // ---------------- resolve org id ----------------
-  let orgResolveAttempts = 0;
-
-  function resolveOrgId(cb) {
-    safeSendMessage({ type: 'GET_ORG_ID' }, (res) => {
-      if (res && res.orgId) {
-        console.log('[CUM] orgId from cookie (via background):', res.orgId);
-        cb(res.orgId);
-        return;
-      }
-      const m = document.cookie.match(/lastActiveOrg=([a-f0-9-]{36})/i);
-      if (m) {
-        console.log('[CUM] orgId from document.cookie fallback:', m[1]);
-        cb(m[1]);
-        return;
-      }
-      console.warn('[CUM] orgId not found yet (attempt', orgResolveAttempts + 1, ') — waiting for network sniff / retry');
-      cb(null);
-
-      orgResolveAttempts++;
-      if (orgResolveAttempts < 8 && isContextValid()) {
-        setTimeout(() => resolveOrgId(cb), 2000);
-      }
-    });
-  }
-  resolveOrgId((id) => { if (id) setOrgId(id); });
-
-  function setOrgId(id) {
-    if (!id || id === STATE.orgId) return;
-    console.log('[CUM] setOrgId ->', id);
-    STATE.orgId = id;
-    pollUsage(true);
-  }
-
-  // ---------------- active usage polling ----------------
-  async function pollUsage(force) {
-    if (!isContextValid()) return;
-    if (!STATE.orgId) {
-      console.warn('[CUM] pollUsage skipped — no orgId yet');
-      return;
-    }
     const now = Date.now();
-    if (!force && now - STATE.lastPollAt < 5000) return;
-    STATE.lastPollAt = now;
-
-    const url = `https://claude.ai/api/organizations/${STATE.orgId}/usage`;
-    console.log('[CUM] polling', url);
+    if (!force && now - state.lastPollAt < MIN_POLL_GAP_MS) return;
+    state.lastPollAt = now;
 
     try {
-      const res = await fetch(url, {
-        method: 'GET',
+      const response = await fetch(`https://claude.ai/api/organizations/${state.orgId}/usage`, {
         credentials: 'include',
-        signal: unloadController.signal,
+        signal: unload.signal,
       });
 
-      if (!isContextValid()) return;
-      console.log('[CUM] usage response status:', res.status);
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        console.warn('[CUM] usage fetch not ok:', res.status, text.slice(0, 300));
+      if (!response.ok) {
+        console.warn(`${LOG_PREFIX} usage request returned ${response.status}`);
         return;
       }
-
-      const data = await res.json();
-      if (!isContextValid()) return;
-
-      console.log('[CUM] usage payload keys:', Object.keys(data));
-      console.log('[CUM] usage payload (full):', data);
-      window.__cumLastPayload = data;
-
-      applyRawUsage(data);
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-      if (!isContextValid()) return;
-      console.warn('[Claude Usage Meter] usage poll failed', e);
+      applyUsage(await response.json());
+    } catch (error) {
+      if (error.name !== 'AbortError') console.warn(`${LOG_PREFIX} usage request failed`, error);
     }
   }
 
-  // ---------------- messages from injected.js ----------------
-  function onMessage(event) {
-    if (!isContextValid()) return;
-    if (event.source !== window) return;
-    const { type, source, payload } = event.data || {};
-    if (type !== '__cum_evt__') return;
-    if (source === 'orgId') { console.log('[CUM] orgId sniffed from network:', payload); setOrgId(payload); return; }
-    if (source === 'usage') { console.log('[CUM] usage sniffed from network:', payload); applyRawUsage(payload); return; }
-    if (source === 'message_limit') { console.log('[CUM] message_limit sniffed from SSE:', payload); applyMessageLimit(payload); return; }
-  }
-  window.addEventListener('message', onMessage);
+  function onSnifferMessage(event) {
+    if (event.source !== window || event.data?.type !== SNIFFER_EVENT) return;
 
-  // ---------------- force refresh from popup ----------------
-  if (isContextValid()) {
-    try {
-      chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-        if (!isContextValid()) return;
-        if (msg.type === 'CUM_FORCE_REFRESH') {
-          pollUsage(true).finally(() => {
-            try { sendResponse({ ok: true }); } catch (e) {}
-          });
-          return true;
-        }
-      });
-    } catch (e) {
-      teardown();
+    const { channel, payload } = event.data;
+    if (channel === 'orgId') setOrgId(payload);
+    else if (channel === 'usage') applyUsage(payload);
+    else if (channel === 'messageLimit') applyMessageLimit(payload);
+  }
+
+  function pollIfVisible() {
+    if (document.visibilityState === 'visible') pollUsage();
+  }
+
+  // ------------------------------------------------------------ normalisation
+
+  function pick(source, keys) {
+    for (const key of keys) {
+      if (source?.[key] != null) return source[key];
     }
+    return null;
   }
 
-  // ---------------- reset-time parsing ----------------
   function parseResetTime(raw) {
-    if (raw == null) return null;
-    if (typeof raw === 'string' && /^-?\d+$/.test(raw.trim())) raw = Number(raw.trim());
-    if (typeof raw === 'number') {
-      if (raw > 1e12) return new Date(raw);
-      if (raw > 1e9) return new Date(raw * 1000);
-      return new Date(Date.now() + raw * 1000);
+    const value = typeof raw === 'string' && /^\d+$/.test(raw.trim()) ? Number(raw) : raw;
+    if (value == null) return null;
+
+    if (typeof value === 'number') {
+      if (value > 1e12) return new Date(value); // epoch milliseconds
+      if (value > 1e9) return new Date(value * 1000); // epoch seconds
+      return new Date(Date.now() + value * 1000); // seconds from now
     }
-    const d = new Date(raw);
-    return isNaN(d.getTime()) ? null : d;
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
   }
 
-  // ---------------- normalization ----------------
+  // `utilization` arrives as a whole-number percentage. A value below 1 with a
+  // fractional part is the only reliable signal that it is a 0-1 ratio instead.
+  function toPercent(utilization) {
+    return !Number.isInteger(utilization) && utilization > 0 && utilization < 1
+      ? utilization * 100
+      : utilization;
+  }
+
   function toBucket(node, previous) {
     if (!node || typeof node !== 'object') return null;
 
+    const resetsAt = parseResetTime(pick(node, RESET_KEYS)) ?? previous?.resetsAt ?? null;
+    const limit = typeof node.limit === 'number' ? node.limit : null;
+
     let used = typeof node.used === 'number' ? node.used : null;
-    let limit = typeof node.limit === 'number' ? node.limit : null;
-    let remaining = typeof node.remaining === 'number' ? node.remaining : null;
-
-    if (used == null && remaining != null && limit != null) used = limit - remaining;
-    if (remaining == null && used != null && limit != null) remaining = limit - used;
-
-    const rawReset =
-      node.resets_at ?? node.reset_at ?? node.resetsAt ?? node.resetAt ??
-      node.reset_time ?? node.resets_in_seconds ?? node.resetsInSeconds ?? null;
-
-    let resetsAt = parseResetTime(rawReset);
-    if (!resetsAt && previous && previous.resetsAt) resetsAt = previous.resetsAt;
-
-    if (used == null && limit == null && typeof node.utilization === 'number') {
-      const raw = node.utilization;
-      // Anthropic sends `utilization` as a whole-number percentage already
-      // (e.g. 1 means 1%, not a 0–1 fraction). We only treat it as a
-      // fraction when it has a decimal component below 1 (e.g. 0.15),
-      // since that's the only signal that reliably disambiguates it from
-      // a real low percentage. A fraction of exactly 1.0 (100%) is
-      // inherently indistinguishable from "already-percentage 1" (1%)
-      // by magnitude alone — this has not been observed in practice,
-      // so it's accepted as a known, documented edge case.
-      const pct = (!Number.isInteger(raw) && raw > 0 && raw < 1) ? raw * 100 : raw;
-      return { used: null, limit: null, remaining: null, pct: clamp(pct, 0, 100), resetsAt };
+    if (used == null && limit != null && typeof node.remaining === 'number') {
+      used = limit - node.remaining;
     }
-    if (used == null || limit == null) return null;
 
-    return {
-      used, limit, remaining,
-      pct: limit > 0 ? clamp((used / limit) * 100, 0, 100) : 0,
-      resetsAt,
-    };
+    if (used != null && limit != null) {
+      return {
+        used,
+        limit,
+        remaining: limit - used,
+        pct: limit > 0 ? clamp((used / limit) * 100, 0, 100) : 0,
+        resetsAt,
+      };
+    }
+
+    if (typeof node.utilization === 'number') {
+      const pct = clamp(toPercent(node.utilization), 0, 100);
+      return { used: null, limit: null, remaining: null, pct, resetsAt };
+    }
+
+    return null;
   }
 
-  function applyRawUsage(raw) {
-    if (!raw || typeof raw !== 'object') return;
-
-    let currentNode = raw.five_hour || raw.fiveHour || raw.current || raw.session;
-    let weeklyNode = raw.seven_day || raw.sevenDay || raw.weekly || raw.week;
-
-    if (!currentNode || !weeklyNode) {
-      const found = {};
-      (function visit(node, path) {
-        if (!node || typeof node !== 'object') return;
-        const key = path.join('.');
-        if (!found.current && /five.?hour|session|current/i.test(key)) found.current = node;
-        if (!found.weekly && /seven.?day|weekly|week/i.test(key)) found.weekly = node;
-        for (const [k, v] of Object.entries(node)) if (v && typeof v === 'object') visit(v, [...path, k]);
-      })(raw, []);
-      currentNode = currentNode || found.current;
-      weeklyNode = weeklyNode || found.weekly;
+  function reviveResetDates(usage) {
+    for (const bucket of Object.values(usage)) {
+      if (bucket?.resetsAt) bucket.resetsAt = parseResetTime(bucket.resetsAt);
     }
+    return usage;
+  }
 
-    console.log('[CUM] matched currentNode:', currentNode);
-    console.log('[CUM] matched weeklyNode:', weeklyNode);
+  function applyUsage(payload) {
+    if (!payload || typeof payload !== 'object') return;
 
-    const current = toBucket(currentNode, STATE.usage?.current);
-    const weekly = toBucket(weeklyNode, STATE.usage?.weekly);
-
-    console.log('[CUM] normalized current bucket:', current);
-    console.log('[CUM] normalized weekly bucket:', weekly);
+    const current = toBucket(pick(payload, BUCKET_KEYS.current), state.usage?.current);
+    const weekly = toBucket(pick(payload, BUCKET_KEYS.weekly), state.usage?.weekly);
 
     if (!current && !weekly) {
-      console.warn('[CUM] Neither bucket normalized — payload shape mismatch. Inspect window.__cumLastPayload');
+      console.warn(`${LOG_PREFIX} unrecognised usage payload`, payload);
       return;
     }
 
-    STATE.usage = {
-      current: current || STATE.usage?.current || null,
-      weekly: weekly || STATE.usage?.weekly || null,
-    };
-    persistSnapshot();
-    render();
+    setUsage({
+      current: current ?? state.usage?.current ?? null,
+      weekly: weekly ?? state.usage?.weekly ?? null,
+    });
   }
 
   function applyMessageLimit(payload) {
-    const bucket = toBucket(payload, STATE.usage?.current);
-    if (!bucket) return;
-    STATE.usage = { current: bucket, weekly: STATE.usage?.weekly || null };
-    persistSnapshot();
+    const current = toBucket(payload, state.usage?.current);
+    if (!current) return;
+
+    setUsage({ current, weekly: state.usage?.weekly ?? null });
+    setTimeout(() => pollUsage({ force: true }), POST_TURN_POLL_DELAY_MS);
+  }
+
+  function setUsage(usage) {
+    state.usage = usage;
+    writeSnapshot({ usage, lastUpdated: Date.now() });
     render();
-    setTimeout(() => { if (isContextValid()) pollUsage(true); }, 1500);
   }
 
-  function persistSnapshot() {
-    if (!STATE.usage) return;
-    safeStorageSet({ [STORAGE_KEY]: { usage: STATE.usage, lastUpdated: Date.now() } });
-  }
+  // ------------------------------------------------------------------ the bar
 
-  function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+  const METERS = [
+    { bucket: 'current', label: 'Session' },
+    { bucket: 'weekly', label: 'Weekly' },
+  ];
 
-  safeInterval(() => { if (document.visibilityState === 'visible') pollUsage(false); }, 20000);
-  function onVisibility() { if (document.visibilityState === 'visible') pollUsage(false); }
-  document.addEventListener('visibilitychange', onVisibility);
-  safeInterval(() => { if (barEl) refreshBarUI(); }, 30000);
-
-  // ==================================================================
-  // UI — embedded inline inside Claude's own composer card
-  // ==================================================================
-  let barEl = null;
+  let bar = null;
 
   function findComposerRoot() {
     const chatInput = document.querySelector('[data-testid="chat-input"]');
     if (!chatInput) return null;
-    const modelBtn = document.querySelector('[data-testid="model-selector-dropdown"]');
-    if (modelBtn) {
+
+    const modelSelector = document.querySelector('[data-testid="model-selector-dropdown"]');
+    if (modelSelector) {
       const ancestors = new Set();
-      let a = chatInput;
-      while (a) { ancestors.add(a); a = a.parentElement; }
-      let b = modelBtn;
-      while (b) { if (ancestors.has(b)) return b; b = b.parentElement; }
+      for (let node = chatInput; node; node = node.parentElement) ancestors.add(node);
+      for (let node = modelSelector; node; node = node.parentElement) {
+        if (ancestors.has(node)) return node;
+      }
     }
-    return chatInput.parentElement?.parentElement?.parentElement || chatInput.parentElement || null;
+    return chatInput.parentElement?.parentElement?.parentElement ?? chatInput.parentElement;
   }
 
-  function ensureBar() {
-    if (barEl) return barEl;
-    barEl = document.createElement('div');
-    barEl.id = 'cum-inline-bar';
-    barEl.innerHTML = `
-      <div class="cum-meter" data-bucket="current">
-        <div class="cum-meter-head"><span class="cum-meter-label">Session</span><span class="cum-meter-value">—</span></div>
-        <div class="cum-track"><div class="cum-fill"></div></div>
-        <div class="cum-reset"></div>
-      </div>
-      <div class="cum-divider"></div>
-      <div class="cum-meter" data-bucket="weekly">
-        <div class="cum-meter-head"><span class="cum-meter-label">Weekly</span><span class="cum-meter-value">—</span></div>
-        <div class="cum-track"><div class="cum-fill"></div></div>
-        <div class="cum-reset"></div>
-      </div>`;
-    return barEl;
+  function createBar() {
+    const element = document.createElement('div');
+    element.id = BAR_ID;
+    element.innerHTML = METERS.map(
+      ({ bucket, label }) => `
+        <div class="cu-meter" data-bucket="${bucket}">
+          <div class="cu-meter-head">
+            <span class="cu-meter-label">${label}</span>
+            <span class="cu-meter-value">—</span>
+          </div>
+          <div class="cu-track"><div class="cu-fill"></div></div>
+          <div class="cu-reset"></div>
+        </div>`,
+    ).join('<div class="cu-divider"></div>');
+    return element;
   }
 
   function attachBar() {
-    if (!isContextValid()) return;
     const root = findComposerRoot();
     if (!root) return;
-    const bar = ensureBar();
+
+    bar ??= createBar();
     if (bar.parentElement !== root) root.appendChild(bar);
   }
 
-  function formatCountdown(resetsAt) {
-    if (!resetsAt) return null;
-    const target = resetsAt instanceof Date ? resetsAt : new Date(resetsAt);
-    const targetMs = target.getTime();
-    if (isNaN(targetMs)) return null;
-    const diffMs = targetMs - Date.now();
-    if (diffMs <= 0) return 'soon';
-    const totalMinutes = Math.floor(diffMs / 60000);
-    const days = Math.floor(totalMinutes / 1440);
-    const hours = Math.floor((totalMinutes % 1440) / 60);
-    const minutes = totalMinutes % 60;
-    if (days >= 1) return `${days}d ${hours}h`;
-    if (hours >= 1) return `${hours}h ${minutes}m`;
-    return `${minutes}m`;
-  }
+  function renderBucket(bucket, data) {
+    const meter = bar.querySelector(`.cu-meter[data-bucket="${bucket}"]`);
+    if (!meter) return;
 
-  function updateBucketUI(root, bucket, data) {
-    const wrap = root.querySelector(`.cum-meter[data-bucket="${bucket}"]`);
-    if (!wrap) return;
-    const valueEl = wrap.querySelector('.cum-meter-value');
-    const fillEl = wrap.querySelector('.cum-fill');
-    const resetEl = wrap.querySelector('.cum-reset');
+    const pct = data ? clamp(Math.round(data.pct), 0, 100) : 0;
+    const severity = data ? level(pct) : null;
+    const remaining = data ? countdown(data.resetsAt) : null;
 
-    if (!data) {
-      valueEl.textContent = '—';
-      fillEl.style.width = '0%';
-      fillEl.classList.remove('cum-fill--warn', 'cum-fill--danger');
-      resetEl.textContent = '';
-      return;
-    }
+    const fill = meter.querySelector('.cu-fill');
+    fill.style.width = `${pct}%`;
+    fill.classList.toggle('cu-fill--warn', severity === 'warn');
+    fill.classList.toggle('cu-fill--danger', severity === 'danger');
 
-    const pct = Math.round(data.pct);
-    valueEl.textContent = data.used != null && data.limit != null
-      ? `${data.used}/${data.limit} · ${pct}%`
-      : `${pct}%`;
-    fillEl.style.width = `${clamp(pct, 0, 100)}%`;
-    fillEl.classList.toggle('cum-fill--warn', pct >= 75 && pct < 90);
-    fillEl.classList.toggle('cum-fill--danger', pct >= 90);
-
-    const cd = formatCountdown(data.resetsAt);
-    resetEl.textContent = cd ? `Resets in ${cd}` : '';
-  }
-
-  function refreshBarUI() {
-    if (!barEl) return;
-    updateBucketUI(barEl, 'current', STATE.usage?.current);
-    updateBucketUI(barEl, 'weekly', STATE.usage?.weekly);
+    meter.querySelector('.cu-meter-value').textContent = data ? formatValue(data) : '—';
+    meter.querySelector('.cu-reset').textContent = remaining ? `Resets in ${remaining}` : '';
   }
 
   function render() {
     attachBar();
-    refreshBarUI();
+    if (!bar) return;
+
+    renderBucket('current', state.usage?.current);
+    renderBucket('weekly', state.usage?.weekly);
   }
 
-  // SPA route change handling
-  const origPush = history.pushState;
-  const origReplace = history.replaceState;
-  function onRoute() {
-    if (!isContextValid()) return;
-    setTimeout(() => { if (isContextValid()) attachBar(); }, 50);
-    setTimeout(() => { if (isContextValid()) attachBar(); }, 300);
-    setTimeout(() => { if (isContextValid()) attachBar(); }, 800);
-  }
-  history.pushState = function (...a) { const r = origPush.apply(this, a); onRoute(); return r; };
-  history.replaceState = function (...a) { const r = origReplace.apply(this, a); onRoute(); return r; };
-  window.addEventListener('popstate', onRoute);
+  // ------------------------------------------------------------------- start
 
-  let mo = new MutationObserver(() => attachBar());
-  mo.observe(document.documentElement, { childList: true, subtree: true });
-  safeInterval(attachBar, 1000);
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type !== 'REFRESH_USAGE') return;
+    pollUsage({ force: true }).then(() => sendResponse({ ok: true }));
+    return true;
+  });
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', render);
-  else render();
+  window.addEventListener('message', onSnifferMessage);
+  document.addEventListener('visibilitychange', pollIfVisible);
+  window.addEventListener('pagehide', (event) => {
+    // A persisted pagehide is a bfcache entry: the page may come back running.
+    if (!event.persisted) teardown();
+  });
+
+  interval(pollIfVisible, POLL_INTERVAL_MS);
+  interval(render, RENDER_INTERVAL_MS);
+
+  injectSniffer();
+
+  (async () => {
+    const snapshot = await readSnapshot();
+    if (snapshot?.usage) {
+      state.usage = reviveResetDates(snapshot.usage);
+      render();
+    }
+    setOrgId(await resolveOrgId());
+  })();
 })();

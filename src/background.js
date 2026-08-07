@@ -1,13 +1,10 @@
-// ---- Org ID resolution via cookie ----
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type === 'GET_ORG_ID') {
-    chrome.cookies.get({ url: 'https://claude.ai', name: 'lastActiveOrg' }, (cookie) => {
-      sendResponse({ orgId: cookie ? cookie.value : null });
-    });
-    return true; // async response
-  }
+'use strict';
 
-  if (msg.type === 'SET_BADGE') {
-    return;
-  }
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type !== 'GET_ORG_ID') return;
+
+  chrome.cookies.get({ url: 'https://claude.ai', name: 'lastActiveOrg' }, (cookie) => {
+    sendResponse({ orgId: cookie?.value ?? null });
+  });
+  return true;
 });

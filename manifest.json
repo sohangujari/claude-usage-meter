@@ -11,7 +11,7 @@
   "content_scripts": [
     {
       "matches": ["https://claude.ai/*"],
-      "js": ["src/content.js"],
+      "js": ["src/usage-format.js", "src/content.js"],
       "css": ["src/styles.css"],
       "run_at": "document_start"
     }
