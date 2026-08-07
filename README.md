@@ -56,21 +56,6 @@ This extension:
 
 ---
 
-## Development
-
-No build step or dependencies - load `chrome://extensions` → **Load unpacked** and point it at this folder.
-
-```
-src/
-  background.js      service worker; resolves the org ID from the session cookie
-  content.js         polls /usage, normalizes it, renders the composer bar
-  injected.js        page-context fetch patch; sniffs org ID, usage and SSE limits
-  usage-format.js    shared countdown/threshold formatting (content + popup)
-  popup.{html,css,js}
-```
-
----
-
 ## License
 
 MIT - see [LICENSE](LICENSE) for details.
