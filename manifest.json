@@ -3,23 +3,39 @@
   "name": "Claude Usage Meter",
   "version": "0.1.0",
   "description": "Shows live session & weekly usage limits right inside the message composer on claude.ai.",
-  "permissions": ["storage", "cookies"],
-  "host_permissions": ["https://claude.ai/*"],
+  "permissions": [
+    "storage",
+    "cookies"
+  ],
+  "host_permissions": [
+    "https://claude.ai/*"
+  ],
   "background": {
     "service_worker": "src/background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://claude.ai/*"],
-      "js": ["src/usage-format.js", "src/content.js"],
-      "css": ["src/styles.css"],
-      "run_at": "document_start"
-    }
-  ],
-  "web_accessible_resources": [
+      "matches": [
+        "https://claude.ai/*"
+      ],
+      "js": [
+        "src/injected.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
     {
-      "resources": ["src/injected.js"],
-      "matches": ["https://claude.ai/*"]
+      "matches": [
+        "https://claude.ai/*"
+      ],
+      "js": [
+        "src/usage-format.js",
+        "src/content.js"
+      ],
+      "css": [
+        "src/styles.css"
+      ],
+      "run_at": "document_start"
     }
   ],
   "icons": {
@@ -41,5 +57,6 @@
       "256": "icons/icon256.png",
       "512": "icons/icon512.png"
     }
-  }
+  },
+  "minimum_chrome_version": "111"
 }

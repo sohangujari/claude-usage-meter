@@ -69,9 +69,19 @@
   min-height: 12px;
 }
 
+.cu-reset--alert {
+  opacity: 0.85;
+  color: #e0a03d;
+}
+
 .cu-divider {
   width: 1px;
   align-self: stretch;
   background: currentColor;
   opacity: 0.08;
+}
+
+#cu-usage-bar[hidden],
+#cu-usage-bar [hidden] {
+  display: none;
 }

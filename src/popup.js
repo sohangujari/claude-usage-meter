@@ -1,6 +1,6 @@
 'use strict';
 
-const { clamp, countdown, level, value: formatValue } = UsageFormat;
+const { clamp, countdown, level, pace, value: formatValue, WINDOW_MS } = UsageFormat;
 
 const STORAGE_KEY = 'usageSnapshot';
 const COUNTDOWN_REFRESH_MS = 30000;
@@ -11,17 +11,22 @@ const refreshIcon = document.getElementById('refresh-icon');
 const stalenessLabel = document.getElementById('staleness');
 
 function renderBucket(bucket, data) {
-  const pct = data ? clamp(Math.round(data.pct), 0, 100) : 0;
-  const severity = data ? level(pct) : null;
+  const pct = data?.pct != null ? clamp(Math.round(data.pct), 0, 100) : 0;
+  const severity = data?.pct != null ? level(pct) : null;
   const remaining = data ? countdown(data.resetsAt) : null;
+  const paceLabel = data ? pace(data, WINDOW_MS[bucket]) : null;
 
   const fill = document.getElementById(`${bucket}-fill`);
   fill.style.width = `${pct}%`;
   fill.classList.toggle('warn', severity === 'warn');
   fill.classList.toggle('danger', severity === 'danger');
 
+  const reset = document.getElementById(`${bucket}-reset`);
+  const notes = [remaining && `Resets in ${remaining}`, data?.label, paceLabel].filter(Boolean);
+  reset.textContent = notes.join(' · ');
+  reset.classList.toggle('alert', Boolean(paceLabel || data?.label));
+
   document.getElementById(`${bucket}-value`).textContent = data ? formatValue(data) : '—';
-  document.getElementById(`${bucket}-reset`).textContent = remaining ? `Resets in ${remaining}` : '';
 }
 
 function formatAge(lastUpdated) {
@@ -34,7 +39,11 @@ async function render() {
 
   renderBucket('current', snapshot?.usage?.current);
   renderBucket('weekly', snapshot?.usage?.weekly);
-  stalenessLabel.textContent = snapshot ? formatAge(snapshot.lastUpdated) : '· open claude.ai';
+
+  // An empty /usage means "no published quota", which covers both a plan with
+  // no limits and a free plan that has not sent its first message yet.
+  if (snapshot?.unavailable) stalenessLabel.textContent = '· no usage data yet';
+  else stalenessLabel.textContent = snapshot ? formatAge(snapshot.lastUpdated) : '· open claude.ai';
 }
 
 async function requestRefresh() {

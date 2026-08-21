@@ -133,3 +133,8 @@ body {
   margin-top: 5px;
   min-height: 13px;
 }
+
+.reset.alert {
+  opacity: 0.85;
+  color: #e0a03d;
+}
