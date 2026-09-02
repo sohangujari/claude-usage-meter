@@ -40,8 +40,6 @@ async function render() {
   renderBucket('current', snapshot?.usage?.current);
   renderBucket('weekly', snapshot?.usage?.weekly);
 
-  // An empty /usage means "no published quota", which covers both a plan with
-  // no limits and a free plan that has not sent its first message yet.
   if (snapshot?.unavailable) stalenessLabel.textContent = '· no usage data yet';
   else stalenessLabel.textContent = snapshot ? formatAge(snapshot.lastUpdated) : '· open claude.ai';
 }

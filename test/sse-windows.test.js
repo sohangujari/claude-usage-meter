@@ -8,6 +8,7 @@ const vm = require('node:vm');
 const src = (name) => fs.readFileSync(path.join(__dirname, '..', 'src', name), 'utf8');
 
 const listeners = new Map();
+const posted = [];
 let written = null;
 
 globalThis.setInterval = () => 0;
@@ -17,6 +18,7 @@ console.warn = () => {}; // the stubbed network is expected to fail here
 globalThis.window = {
   addEventListener: (type, fn) => listeners.set(type, fn),
   removeEventListener: () => {},
+  postMessage: (message) => posted.push(message),
   location: { origin: 'https://claude.ai' },
 };
 globalThis.document = {
@@ -108,3 +110,11 @@ assert.strictEqual(sendMessageLimit(null), null);
 void good;
 
 console.log('ok - free-plan SSE windows render as percentages');
+
+setImmediate(() => {
+  const fetches = posted.filter((m) => m.channel === 'fetchUsage');
+  assert.ok(fetches.length > 0, 'no usage fetch asked of the page');
+  assert.strictEqual(fetches[0].type, '__claude_usage_meter__');
+  assert.strictEqual(fetches[0].payload, '00000000-0000-4000-8000-000000000000');
+  console.log('ok - usage fetch is delegated to the page world');
+});

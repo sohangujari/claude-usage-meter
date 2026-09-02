@@ -20,7 +20,6 @@
       const orgId = pageProps?.organization?.uuid ?? pageProps?.account?.organization?.uuid;
       if (orgId) report('orgId', orgId);
     } catch {
-      // Next.js payload shape is not guaranteed; network sniffing covers this.
     }
   }
 
@@ -34,7 +33,6 @@
       try {
         onEvent(JSON.parse(data));
       } catch {
-        // Partial or non-JSON frame.
       }
     }
   }
@@ -57,7 +55,6 @@
     }
   }
 
-  // Returns a replacement Response when the body had to be tee'd, else null.
   function sniff(url, response) {
     const orgId = url.match(ORG_ID_PATTERN);
     if (orgId) report('orgId', orgId[1]);
@@ -86,10 +83,22 @@
     });
   }
 
+  const ORG_ID_ONLY = /^[a-f0-9-]{36}$/i;
+
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || event.data?.type !== SNIFFER_EVENT) return;
+    if (event.data.channel !== 'fetchUsage' || !ORG_ID_ONLY.test(event.data.payload ?? '')) return;
+
+    window
+      .fetch(`https://claude.ai/api/organizations/${event.data.payload}/usage`, {
+        credentials: 'include',
+      })
+      .catch(() => {});
+  });
+
   window.fetch = async function (...args) {
     const response = await originalFetch.call(window, ...args);
 
-    // Sniffing must never break the page's own request.
     try {
       return sniff(String(args[0]?.url ?? args[0] ?? ''), response) ?? response;
     } catch {

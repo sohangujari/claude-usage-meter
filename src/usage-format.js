@@ -6,10 +6,8 @@ const UsageFormat = {
 
   WINDOW_MS: {
     current: 5 * 60 * 60 * 1000,
-    weekly: 7 * 24 * 60 * 60 * 1000,
   },
 
-  // Below this much of the window elapsed, the projection is too noisy to show.
   PACE_MIN_ELAPSED: 0.1,
   PACE_THRESHOLD: 1.1,
 
@@ -39,11 +37,8 @@ const UsageFormat = {
     return null;
   },
 
-  // Projects the current burn rate to the end of the window. Returns a label
-  // only when that rate would exhaust the quota before the reset.
   pace(bucket, windowMs) {
     if (bucket?.pct == null || !bucket.resetsAt || !windowMs) return null;
-    // Past the danger threshold the bar colour already says it.
     if (bucket.pct >= UsageFormat.DANGER_PCT) return null;
 
     const remainingMs = new Date(bucket.resetsAt).getTime() - Date.now();
@@ -57,8 +52,6 @@ const UsageFormat = {
   },
 
   value(bucket) {
-    // `estimated` means the figure only drives the bar colour - the real
-    // number is unknown, so do not print one.
     if (bucket.pct == null || bucket.estimated) return '—';
     const pct = Math.round(bucket.pct);
     return bucket.used != null && bucket.limit != null
