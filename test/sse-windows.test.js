@@ -72,8 +72,8 @@ let snapshot = sendMessageLimit({
 assert.ok(snapshot, 'no snapshot written');
 assert.strictEqual(Math.round(snapshot.usage.current.pct), 42);
 assert.strictEqual(Math.round(snapshot.usage.weekly.pct), 7);
-assert.strictEqual(snapshot.usage.current.resetsAt.getTime(), resetsAt * 1000);
-assert.strictEqual(snapshot.usage.weekly.resetsAt.getTime(), (resetsAt + 86400) * 1000);
+assert.strictEqual(snapshot.usage.current.resetsAt, new Date(resetsAt * 1000).toISOString());
+assert.strictEqual(snapshot.usage.weekly.resetsAt, new Date((resetsAt + 86400) * 1000).toISOString());
 assert.strictEqual(UsageFormat.value(snapshot.usage.current), '42%');
 
 // Renamed window keys must not silently zero the meters.

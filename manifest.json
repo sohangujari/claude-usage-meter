@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Claude Usage Meter",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Shows live session & weekly usage limits right inside the message composer on claude.ai.",
   "permissions": [
     "storage",

@@ -99,7 +99,7 @@
   function writeSnapshot(snapshot) {
     if (!isAlive()) return;
     try {
-      chrome.storage.local.set({ [STORAGE_KEY]: snapshot }).catch(() => {});
+      chrome.storage.local.set({ [STORAGE_KEY]: JSON.parse(JSON.stringify(snapshot)) }).catch(() => {});
     } catch {
       teardown();
     }
@@ -381,16 +381,14 @@
     element.innerHTML = METERS.map(
       ({ bucket, label }) => `
         <div class="cu-meter" data-bucket="${bucket}">
-          <div class="cu-meter-head">
-            <span class="cu-meter-label">${label}</span>
-            <span class="cu-meter-meta">
-              <span class="cu-meter-value">—</span>
-              <span class="cu-reset"></span>
-            </span>
-          </div>
-          <div class="cu-track"><div class="cu-fill"></div></div>
+          <span class="cu-meter-label">${label}</span>
+          <div class="cu-track" role="progressbar" aria-label="${label} usage" aria-valuemin="0" aria-valuemax="100"><div class="cu-fill"></div></div>
+          <span class="cu-meter-meta">
+            <span class="cu-meter-value">—</span>
+            <span class="cu-reset"></span>
+          </span>
         </div>`,
-    ).join('<div class="cu-divider"></div>');
+    ).join('');
     return element;
   }
 
@@ -400,7 +398,7 @@
   function backdropColor(element) {
     for (let node = element; node && node !== document.documentElement; node = node.parentElement) {
       const color = getComputedStyle(node).backgroundColor;
-      if (color && !/^(transparent$|rgba\(.*,\s*0\))/.test(color)) return color;
+      if (color && !/^transparent$|,\s*0\)$|\/\s*0\)$/.test(color)) return color;
     }
     return getComputedStyle(document.body).backgroundColor || '';
   }
@@ -442,6 +440,7 @@
 
     const fill = meter.querySelector('.cu-fill');
     fill.style.width = `${pct}%`;
+    fill.parentElement.setAttribute('aria-valuenow', String(pct));
     fill.classList.toggle('cu-fill--warn', severity === 'warn');
     fill.classList.toggle('cu-fill--danger', severity === 'danger');
 
@@ -451,6 +450,30 @@
     reset.classList.toggle('cu-reset--alert', Boolean(paceLabel || data.label));
 
     meter.querySelector('.cu-meter-value').textContent = formatValue(data);
+    const name = meter.querySelector('.cu-meter-label').textContent;
+    meter.title = remaining ? `${name} ${formatValue(data)} · resets in ${remaining}` : '';
+  }
+
+  function setVar(name, value) {
+    if (value && bar.style.getPropertyValue(name) !== value) bar.style.setProperty(name, value);
+  }
+
+  function matchChin() {
+    const note = bar.parentElement.querySelector('[data-disclaimer]');
+    const row = note?.closest('[data-size]');
+    if (!row) return;
+
+    const rowStyle = getComputedStyle(row);
+    setVar('--cu-secondary', rowStyle.color);
+    setVar('--cu-muted', getComputedStyle(note).color);
+    setVar('--cu-font-size', rowStyle.fontSize);
+
+    const barRect = bar.getBoundingClientRect();
+    const text = (note.querySelector('a') ?? note).getBoundingClientRect();
+    const model = row.querySelector('[data-testid="model-selector-dropdown"] .truncate')?.getBoundingClientRect();
+    const inset = (px) => (px >= 0 && px < barRect.width / 4 ? `${Math.round(px)}px` : null);
+    if (text.width) setVar('--cu-inset-start', inset(text.left - barRect.left));
+    if (model?.width) setVar('--cu-inset-end', inset(barRect.right - model.right));
   }
 
   function render() {
@@ -465,8 +488,7 @@
     renderBucket('current', state.usage?.current);
     renderBucket('weekly', state.usage?.weekly);
 
-    const visible = bar.querySelectorAll('.cu-meter:not([hidden])').length;
-    bar.querySelector('.cu-divider').hidden = visible < 2;
+    matchChin();
 
     const backdrop = backdropColor(bar.parentElement);
     if (backdrop && backdrop !== bar.style.backgroundColor) {

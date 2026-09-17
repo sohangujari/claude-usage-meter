@@ -3,78 +3,42 @@
   z-index: 10;
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 32px;
   width: 100%;
   box-sizing: border-box;
-  padding-block: 8px 10px;
-  padding-inline: var(--cmp-chin-start, 0px) var(--cmp-chin-end, 0px);
-  margin-top: -2px;
-  border-top: 1px solid var(--cds-border, color-mix(in srgb, currentColor 8%, transparent));
+  padding: 0 var(--cu-inset-end, 16px) 10px var(--cu-inset-start, 16px);
+  margin-top: -4px;
   clip-path: inset(0 -32px -32px -32px);
-  color: inherit;
+  container-type: inline-size;
+  color: var(--cu-muted, inherit);
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--cu-font-size, 12px);
   line-height: 1.4;
 }
 
 .cu-meter {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
-}
-
-.cu-meter-head {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 5px;
+  align-items: center;
+  gap: 10px;
   white-space: nowrap;
 }
 
-.cu-meter-label {
-  opacity: 0.6;
-}
-
-.cu-meter-meta {
-  display: flex;
-  gap: 4px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.cu-meter-value {
-  font-variant-numeric: tabular-nums;
-  font-weight: 500;
-  opacity: 0.9;
-}
-
-.cu-reset {
-  opacity: 0.5;
-  font-variant-numeric: tabular-nums;
-}
-
-.cu-reset:empty {
-  display: none;
-}
-
-.cu-reset--alert {
-  opacity: 0.9;
-  color: #e0a03d;
-}
-
 .cu-track {
-  height: 3px;
+  flex: 1;
+  min-width: 24px;
+  height: 4px;
   border-radius: 999px;
   overflow: hidden;
-  background: color-mix(in srgb, currentColor 12%, transparent);
+  background: color-mix(in srgb, currentColor 16%, transparent);
 }
 
 .cu-fill {
   height: 100%;
   width: 0%;
   border-radius: 999px;
-  background: var(--cds-fill-brand, #c96442);
+  background: #d97757;
   transition: width 0.4s ease;
 }
 
@@ -86,11 +50,33 @@
   background: #e05d4b;
 }
 
-.cu-divider {
-  width: 1px;
-  align-self: stretch;
-  background: currentColor;
-  opacity: 0.08;
+.cu-meter-meta {
+  display: flex;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cu-meter-value {
+  color: var(--cu-secondary, inherit);
+}
+
+.cu-reset:empty {
+  display: none;
+}
+
+.cu-reset--alert {
+  color: #e0a03d;
+}
+
+@container (max-width: 520px) {
+  .cu-track {
+    display: none;
+  }
+}
+
+[data-cds="ChatComposerChin"][aria-hidden="true"] + #cu-usage-bar {
+  margin-top: 10px;
+  box-shadow: none !important;
 }
 
 #cu-usage-bar[hidden],
