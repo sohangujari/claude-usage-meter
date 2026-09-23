@@ -1,10 +1,21 @@
 (function () {
   'use strict';
 
-  const { clamp, countdown, level, pace, value: formatValue, WINDOW_MS } = UsageFormat;
+  const {
+    ACTIVE_ORG_KEY,
+    clamp,
+    countdown,
+    expire,
+    isFuture,
+    level,
+    pace,
+    resetClock,
+    snapshotKey,
+    value: formatValue,
+    WINDOW_MS,
+  } = UsageFormat;
 
   const LOG_PREFIX = '[Claude Usage Meter]';
-  const STORAGE_KEY = 'usageSnapshot';
   const SNIFFER_EVENT = '__claude_usage_meter__';
   const BAR_ID = 'cu-usage-bar';
 
@@ -83,12 +94,13 @@
     }
   }
 
-  function readSnapshot() {
+  function readSnapshot(orgId) {
     if (!isAlive()) return Promise.resolve(null);
+    const key = snapshotKey(orgId);
     try {
       return chrome.storage.local
-        .get(STORAGE_KEY)
-        .then((stored) => stored[STORAGE_KEY] ?? null)
+        .get(key)
+        .then((stored) => stored[key] ?? null)
         .catch(() => null);
     } catch {
       teardown();
@@ -96,10 +108,24 @@
     }
   }
 
-  function writeSnapshot(snapshot) {
+  function writeActiveOrg(orgId) {
     if (!isAlive()) return;
     try {
-      chrome.storage.local.set({ [STORAGE_KEY]: JSON.parse(JSON.stringify(snapshot)) }).catch(() => {});
+      chrome.storage.local.set({ [ACTIVE_ORG_KEY]: orgId }).catch(() => {});
+    } catch {
+      teardown();
+    }
+  }
+
+  function writeSnapshot(snapshot) {
+    if (!isAlive() || !state.orgId) return;
+    try {
+      chrome.storage.local
+        .set({
+          [ACTIVE_ORG_KEY]: state.orgId,
+          [snapshotKey(state.orgId)]: JSON.parse(JSON.stringify(snapshot)),
+        })
+        .catch(() => {});
     } catch {
       teardown();
     }
@@ -121,9 +147,23 @@
     return null;
   }
 
-  function setOrgId(orgId) {
+  async function setOrgId(orgId) {
     if (!orgId || orgId === state.orgId) return;
     state.orgId = orgId;
+    state.usage = null;
+    state.unavailable = false;
+    hydratedOrgId = null;
+    writeActiveOrg(orgId);
+
+    const snapshot = await readSnapshot(orgId);
+    if (state.orgId !== orgId) return;
+
+    const live = state.usage;
+    state.usage = snapshot?.usage ? reviveResetDates(snapshot.usage) : null;
+    if (live) setUsage(live);
+    else render();
+
+    hydratedOrgId = orgId;
     pollUsage({ force: true });
   }
 
@@ -180,7 +220,7 @@
     if (!node || typeof node !== 'object') return null;
 
     const ownReset = parseResetTime(pick(node, RESET_KEYS));
-    const resetsAt = ownReset ?? previous?.resetsAt ?? null;
+    const resetsAt = ownReset ?? (isFuture(previous?.resetsAt) ? previous.resetsAt : null);
     const limit = typeof node.limit === 'number' ? node.limit : null;
 
     let used = typeof node.used === 'number' ? node.used : null;
@@ -237,7 +277,7 @@
   }
 
   let emptyPayloadWarned = false;
-  let hydrated = false;
+  let hydratedOrgId = null;
 
   function applyUsage(payload) {
     if (!payload || typeof payload !== 'object') return;
@@ -294,7 +334,7 @@
 
   function mergeBucket(next, previous) {
     if (!next) return previous ?? null;
-    if (next.resetsAt || !previous?.resetsAt) return next;
+    if (next.resetsAt || !isFuture(previous?.resetsAt)) return next;
     return { ...next, resetsAt: previous.resetsAt };
   }
 
@@ -309,7 +349,7 @@
   }
 
   function setUnavailable() {
-    if (!hydrated || state.unavailable || state.usage) return;
+    if (hydratedOrgId !== state.orgId || state.unavailable || state.usage) return;
     state.usage = null;
     state.unavailable = true;
     writeSnapshot({ usage: null, unavailable: true, lastUpdated: Date.now() });
@@ -419,7 +459,8 @@
     if (bar.parentElement !== root) root.appendChild(bar);
   }
 
-  function renderBucket(bucket, data) {
+  function renderBucket(bucket, stored) {
+    const data = expire(stored);
     const meter = bar.querySelector(`.cu-meter[data-bucket="${bucket}"]`);
     if (!meter) return;
 
@@ -451,7 +492,8 @@
 
     meter.querySelector('.cu-meter-value').textContent = formatValue(data);
     const name = meter.querySelector('.cu-meter-label').textContent;
-    meter.title = remaining ? `${name} ${formatValue(data)} · resets in ${remaining}` : '';
+    const clock = resetClock(data.resetsAt);
+    meter.title = remaining ? `${name} ${formatValue(data)} · resets in ${remaining}${clock ? ` (${clock})` : ''}` : '';
   }
 
   function setVar(name, value) {
@@ -514,15 +556,7 @@
   interval(pollIfVisible, POLL_INTERVAL_MS);
   interval(render, RENDER_INTERVAL_MS);
 
-  (async () => {
-    const snapshot = await readSnapshot();
-    if (snapshot?.usage) {
-      const live = state.usage;
-      state.usage = reviveResetDates(snapshot.usage);
-      if (live) setUsage(live);
-      else render();
-    }
-    hydrated = true;
-    setOrgId(await resolveOrgId());
-  })();
+  resolveOrgId().then((orgId) => {
+    if (!state.orgId) setOrgId(orgId);
+  });
 })();

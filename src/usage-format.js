@@ -1,6 +1,9 @@
 'use strict';
 
 const UsageFormat = {
+  ACTIVE_ORG_KEY: 'activeOrgId',
+  LEGACY_SNAPSHOT_KEY: 'usageSnapshot',
+
   WARN_PCT: 75,
   DANGER_PCT: 90,
 
@@ -13,6 +16,34 @@ const UsageFormat = {
 
   clamp(n, min, max) {
     return Math.max(min, Math.min(max, n));
+  },
+
+  snapshotKey(orgId) {
+    return `usage:${orgId}`;
+  },
+
+  isFuture(date) {
+    return Boolean(date) && new Date(date).getTime() > Date.now();
+  },
+
+  expire(bucket) {
+    if (!bucket?.resetsAt || !(new Date(bucket.resetsAt).getTime() <= Date.now())) return bucket;
+
+    const expired = { ...bucket, pct: 0, resetsAt: null, label: null, estimated: false };
+    if (bucket.limit != null) Object.assign(expired, { used: 0, remaining: bucket.limit });
+    return expired;
+  },
+
+  resetClock(resetsAt) {
+    if (!UsageFormat.isFuture(resetsAt)) return null;
+
+    const date = new Date(resetsAt);
+    const time = { hour: 'numeric', minute: '2-digit' };
+    if (date.toDateString() === new Date().toDateString()) return date.toLocaleTimeString([], time);
+
+    const withinWeek = date.getTime() - Date.now() < 6 * 24 * 60 * 60 * 1000;
+    const day = withinWeek ? { weekday: 'short' } : { month: 'short', day: 'numeric' };
+    return date.toLocaleString([], { ...day, ...time });
   },
 
   countdown(resetsAt) {

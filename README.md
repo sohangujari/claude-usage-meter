@@ -11,7 +11,9 @@ A Chrome extension that shows your **Claude.ai session (5h)** and **weekly (7d)*
 ## Features
 
 - 📊 Inline usage bar embedded directly into Claude's own composer UI - not a floating overlay
-- ⏱ Live "Resets in Xd Xh" / "Xh Xm" / "Xm" countdowns for both session and weekly limits
+- ⏱ Live "Resets in Xd Xh" / "Xh Xm" / "Xm" countdowns for both session and weekly limits - hover to see the exact reset time
+- 🔢 Session usage on the toolbar icon badge, turning amber at 75% and red at 90%
+- 👥 Usage is kept separately for each Claude account, so switching accounts never shows the wrong numbers
 - ⚡ Real-time updates while streaming - reacts instantly to usage changes, no waiting for a refresh
 - 🔄 Background polling as a fallback, plus manual refresh from the popup
 - 💾 Caches the latest snapshot locally - popup shows data instantly, then refreshes
@@ -22,10 +24,10 @@ A Chrome extension that shows your **Claude.ai session (5h)** and **weekly (7d)*
 
 ## Installation
 
-1. Download [`claude-usage-meter-0.1.3.zip`](../../releases/download/v0.1.3/claude-usage-meter-0.1.3.zip)
+1. Download [`claude-usage-meter-0.1.4.zip`](../../releases/download/v0.1.4/claude-usage-meter-0.1.4.zip) and unzip it
 2. Go to `chrome://extensions` in Chrome
 3. Enable **Developer mode** (toggle in the top-right corner)
-4. Drag and drop the zip onto the page
+4. Click **Load unpacked** and select the unzipped folder
 5. Open [claude.ai](https://claude.ai) and start or open a conversation - the usage bar will appear inside the message composer
 
 ---
@@ -52,7 +54,7 @@ This extension:
 - Does **not** collect, transmit, or store any data outside your own browser
 - Does **not** read conversation content
 - Only requests data from `claude.ai`'s own domain, using your existing session
-- Stores only the latest usage snapshot locally in your browser (no history, no analytics, no external servers)
+- Stores only the latest usage snapshot for each account locally in your browser (no history, no analytics, no external servers)
 
 ---
 

@@ -1,8 +1,17 @@
 'use strict';
 
-const { clamp, countdown, level, pace, value: formatValue, WINDOW_MS } = UsageFormat;
-
-const STORAGE_KEY = 'usageSnapshot';
+const {
+  ACTIVE_ORG_KEY,
+  clamp,
+  countdown,
+  expire,
+  level,
+  pace,
+  resetClock,
+  snapshotKey,
+  value: formatValue,
+  WINDOW_MS,
+} = UsageFormat;
 const COUNTDOWN_REFRESH_MS = 30000;
 const REFRESH_TIMEOUT_MS = 4000;
 
@@ -10,7 +19,8 @@ const refreshButton = document.getElementById('refresh');
 const refreshIcon = document.getElementById('refresh-icon');
 const stalenessLabel = document.getElementById('staleness');
 
-function renderBucket(bucket, data) {
+function renderBucket(bucket, stored) {
+  const data = expire(stored);
   const pct = data?.pct != null ? clamp(Math.round(data.pct), 0, 100) : 0;
   const severity = data?.pct != null ? level(pct) : null;
   const remaining = data ? countdown(data.resetsAt) : null;
@@ -22,7 +32,9 @@ function renderBucket(bucket, data) {
   fill.classList.toggle('danger', severity === 'danger');
 
   const reset = document.getElementById(`${bucket}-reset`);
-  const notes = [remaining && `Resets in ${remaining}`, data?.label, paceLabel].filter(Boolean);
+  const clock = data ? resetClock(data.resetsAt) : null;
+  const resetNote = remaining && `Resets in ${remaining}${clock ? ` (${clock})` : ''}`;
+  const notes = [resetNote, data?.label, paceLabel].filter(Boolean);
   reset.textContent = notes.join(' · ');
   reset.classList.toggle('alert', Boolean(paceLabel || data?.label));
 
@@ -35,7 +47,9 @@ function formatAge(lastUpdated) {
 }
 
 async function render() {
-  const { [STORAGE_KEY]: snapshot } = await chrome.storage.local.get(STORAGE_KEY);
+  const { [ACTIVE_ORG_KEY]: orgId } = await chrome.storage.local.get(ACTIVE_ORG_KEY);
+  const key = orgId ? snapshotKey(orgId) : null;
+  const snapshot = key ? (await chrome.storage.local.get(key))[key] : null;
 
   renderBucket('current', snapshot?.usage?.current);
   renderBucket('weekly', snapshot?.usage?.weekly);
@@ -68,7 +82,7 @@ refreshButton.addEventListener('click', async () => {
 });
 
 chrome.storage.onChanged.addListener((changes) => {
-  if (changes[STORAGE_KEY]) render();
+  if (Object.keys(changes).some((key) => key === ACTIVE_ORG_KEY || key.startsWith('usage:'))) render();
 });
 
 setInterval(render, COUNTDOWN_REFRESH_MS);
