@@ -24,11 +24,11 @@ A Chrome extension that shows your **Claude.ai session (5h)** and **weekly (7d)*
 
 ## Installation
 
-1. Download [`claude-usage-meter-0.1.4.zip`](../../releases/download/v0.1.4/claude-usage-meter-0.1.4.zip) and unzip it
-2. Go to `chrome://extensions` in Chrome
-3. Enable **Developer mode** (toggle in the top-right corner)
-4. Click **Load unpacked** and select the unzipped folder
-5. Open [claude.ai](https://claude.ai) and start or open a conversation - the usage bar will appear inside the message composer
+1. Download [`claude-usage-meter-0.1.4.zip`](../../releases/download/v0.1.4/claude-usage-meter-0.1.4.zip)
+2. Unzip it - this creates a `claude-usage-meter-0.1.4` folder
+3. Go to `chrome://extensions` and enable **Developer mode** (toggle in the top-right corner)
+4. Drag the unzipped folder onto the page (or click **Load unpacked** and select it)
+5. Open [claude.ai](https://claude.ai) - the usage bar appears in the message composer
 
 ---
 
